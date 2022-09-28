@@ -1,22 +1,19 @@
-import Route from '@ember/routing/route';
-import RSVP from 'rsvp';
-import { run } from '@ember/runloop';
-import { assign } from '@ember/polyfills';
-import { sendEvent } from '@ember/object/events';
-import Ember from 'ember';
-import QueryParams from '../query-params';
-import ParachuteEvent from '../-private/parachute-event';
-import lookupController from '../utils/lookup-controller';
-
+import Route from "@ember/routing/route";
+import RSVP from "rsvp";
+import { run } from "@ember/runloop";
+import { assign } from "@ember/polyfills";
+import { tryInvoke } from "@ember/utils";
+import { sendEvent } from "@ember/object/events";
+import Ember from "ember";
+import QueryParams from "../query-params";
+import ParachuteEvent from "../-private/parachute-event";
+import lookupController from "../utils/lookup-controller";
 const { canInvoke } = Ember;
-
 const { keys } = Object;
-
 export function initialize(/* application */) {
   if (Route._didInitializeParachute) {
     return;
   }
-
   Route.reopen({
     /**
      * Setup the route's `queryParams` map and call the `setup` hook
@@ -29,22 +26,17 @@ export function initialize(/* application */) {
      */
     setupController(controller, model, transition) {
       this._super(...arguments);
-
       if (QueryParams.hasParachute(controller)) {
         this._setupParachuteQueryParamsMap(controller);
-
         let { routeName } = this;
         let event = new ParachuteEvent(routeName, controller, {});
-
         // Overrides
         event.changed = event.changes;
         event.shouldRefresh = true;
-
-        if (controller.setup) controller.setup(event, transition);
-        sendEvent(controller, 'setup', [event, transition]);
+        controller.setup?.(event, transition);
+        sendEvent(controller, "setup", [event, transition]);
       }
     },
-
     /**
      * Call the `reset` hook on the controller.
      *
@@ -56,19 +48,15 @@ export function initialize(/* application */) {
      */
     resetController(controller, isExiting) {
       this._super(...arguments);
-
       if (QueryParams.hasParachute(controller)) {
         let { routeName } = this;
         let event = new ParachuteEvent(routeName, controller, {});
-
         // Overrides
         event.shouldRefresh = false;
-
-        if (controller.reset) controller.reset(event, isExiting);
-        sendEvent(controller, 'reset', [event, isExiting]);
+        controller.reset?.(event, isExiting);
+        sendEvent(controller, "reset", [event, isExiting]);
       }
     },
-
     /**
      * For Engines support. `transition.routeInfos` is used to compute
      * the query params that will be injected into a controller. In lazily
@@ -85,37 +73,30 @@ export function initialize(/* application */) {
       // so we should use that whenever possible.
       if (transition.routeInfos) {
         const { routeInfos } = transition;
-
         // Check if routeInfos have already been loaded.
         // If so, don't return a promise as it will result in
         // the loading screen/state flashing.
-        if (routeInfos.every(x => x.isResolved)) {
+        if (routeInfos.every((x) => x.isResolved)) {
           return this._super(params, transition);
         }
-
         // Save and bind the refence to the super here
         // as this._super doesn't work in callbacks
         // https://github.com/emberjs/ember.js/issues/15291
         const _super = this._super.bind(this);
-
-        return RSVP.all(routeInfos.map(x => x.routePromise)).then(() =>
+        return RSVP.all(routeInfos.map((x) => x.routePromise)).then(() =>
           _super(params, transition)
         );
       } else {
         const { handlerInfos } = transition;
-
-        if (!handlerInfos.find(x => !x.handler)) {
+        if (!handlerInfos.find((x) => !x.handler)) {
           return this._super(params, transition);
         }
-
         const _super = this._super.bind(this);
-
-        return RSVP.all(handlerInfos.map(x => x.handlerPromise)).then(() =>
+        return RSVP.all(handlerInfos.map((x) => x.handlerPromise)).then(() =>
           _super(params, transition)
         );
       }
     },
-
     /**
      * Serialize query param value if a given query param has a `serialize`
      * method.
@@ -127,18 +108,14 @@ export function initialize(/* application */) {
      */
     serializeQueryParam(value, urlKey /**, defaultValueType **/) {
       let controller = lookupController(this);
-
       if (QueryParams.hasParachute(controller)) {
         let queryParam = QueryParams.lookupQueryParam(controller, urlKey);
-
-        if (canInvoke(queryParam, 'serialize')) {
+        if (canInvoke(queryParam, "serialize")) {
           return queryParam.serialize(value, controller);
         }
       }
-
       return this._super(...arguments);
     },
-
     /**
      * Deserialize query param value if a given query param has a `deserialize`
      * method.
@@ -150,18 +127,14 @@ export function initialize(/* application */) {
      */
     deserializeQueryParam(value, urlKey /**, defaultValueType **/) {
       let controller = lookupController(this);
-
       if (QueryParams.hasParachute(controller)) {
         let queryParam = QueryParams.lookupQueryParam(controller, urlKey);
-
-        if (canInvoke(queryParam, 'deserialize')) {
+        if (canInvoke(queryParam, "deserialize")) {
           return queryParam.deserialize(value, controller);
         }
       }
-
       return this._super(...arguments);
     },
-
     /**
      * Schedule a QueryParamChangeEvent when query params change.
      *
@@ -172,14 +145,12 @@ export function initialize(/* application */) {
      * @returns {void}
      */
     _scheduleParachuteChangeEvent(routeName, controller, changed = {}) {
-      run.schedule('afterRender', this, () => {
+      run.schedule("afterRender", this, () => {
         let event = new ParachuteEvent(routeName, controller, changed);
-
-        if (controller.queryParamsDidChange) controller.queryParamsDidChange(event);
-        sendEvent(controller, 'queryParamsDidChange', [event]);
+        tryInvoke(controller, "queryParamsDidChange", [event]);
+        sendEvent(controller, "queryParamsDidChange", [event]);
       });
     },
-
     /**
      * Setup the route's `queryParams` map if it doesnt already exist from
      * the controller's Parachute meta.
@@ -191,18 +162,15 @@ export function initialize(/* application */) {
      */
     _setupParachuteQueryParamsMap(controller) {
       if (!this.__hasSetupParachuteQPs) {
-        let qpMap = this.get('queryParams');
+        let qpMap = this.get("queryParams");
         let { qpMapForRoute } = QueryParams.metaFor(controller);
-
-        keys(qpMapForRoute).forEach(key => {
+        keys(qpMapForRoute).forEach((key) => {
           qpMapForRoute[key] = assign({}, qpMapForRoute[key], qpMap[key]);
         });
-
-        this.set('queryParams', qpMapForRoute);
+        this.set("queryParams", qpMapForRoute);
         this.__hasSetupParachuteQPs = true;
       }
     },
-
     actions: {
       /**
        * Route hook that fires when query params are changed.
@@ -215,7 +183,6 @@ export function initialize(/* application */) {
        */
       queryParamsDidChange(changed = {}, _, removed = {}) {
         let { controller, routeName } = this;
-
         if (QueryParams.hasParachute(controller)) {
           this._scheduleParachuteChangeEvent(
             routeName,
@@ -223,16 +190,13 @@ export function initialize(/* application */) {
             assign({}, changed, removed)
           );
         }
-
         return this._super(...arguments);
-      }
-    }
+      },
+    },
   });
-
   Route.reopenClass({ _didInitializeParachute: true });
 }
-
 export default {
-  name: 'ember-parachute',
-  initialize
+  name: "ember-parachute",
+  initialize,
 };
